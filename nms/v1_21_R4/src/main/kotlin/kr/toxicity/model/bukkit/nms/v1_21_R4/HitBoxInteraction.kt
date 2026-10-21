@@ -36,6 +36,12 @@ internal class HitBoxInteraction(
     override fun getBukkitEntityRaw(): CraftEntity = craftEntity
     override fun hasExactlyOnePlayerPassenger(): Boolean = false
 
+    // Keep the internal hitbox passenger link, including for forced mount requests.
+    override fun canRide(entity: Entity): Boolean = entity === delegate && super.canRide(entity)
+
+    override fun startRiding(entity: Entity, force: Boolean): Boolean =
+        entity === delegate && super.startRiding(entity, force)
+
     override fun tick() {
         val dimension = delegate.dimensions
         width = dimension.width

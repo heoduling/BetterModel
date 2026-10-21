@@ -108,6 +108,11 @@ internal class HitBoxImpl(
         }
     }
 
+    // Bone hitboxes follow the source entity; a vehicle must never capture them.
+    override fun canRide(entity: Entity): Boolean = false
+
+    override fun startRiding(entity: Entity, force: Boolean): Boolean = false
+
     override fun id(): Int = id
     override fun uuid(): UUID = uuid
     override fun source(): PlatformEntity = delegate.bukkitEntity.wrap()
