@@ -215,6 +215,7 @@ public abstract class Tracker implements AutoCloseable {
     }
 
     private void animationTick() {
+        // Only the tracker tick may advance animations and write its shared packet bundles.
         if (!tickPause.get()) {
             scriptProcessor.tick();
             pipeline.tick(bundlerSet.viewBundler);
@@ -550,6 +551,7 @@ public abstract class Tracker implements AutoCloseable {
 
     /**
      * Plays a blueprint animation on filtered bones.
+     * Animation progression and packet generation occur on the next scheduled tracker tick.
      *
      * @param animation the blueprint animation
      * @param modifier the animation modifier
@@ -565,7 +567,6 @@ public abstract class Tracker implements AutoCloseable {
             match = true;
         }
         match |= pipeline.matchAnimation((b, a) -> b.addAnimation(a, animation, modifier, removeTask));
-        if (match && isScheduled()) animationTick();
         return match;
     }
 
@@ -594,6 +595,7 @@ public abstract class Tracker implements AutoCloseable {
 
     /**
      * Stops an animation on filtered bones for a specific player (optional).
+     * The animation update is applied on the next scheduled tracker tick.
      *
      * @param filter the bone filter
      * @param animation the animation name
@@ -605,7 +607,6 @@ public abstract class Tracker implements AutoCloseable {
         var match = false;
         match |= scriptProcessor.stopAnimation(animation);
         match |= pipeline.matchTree(b -> b.stopAnimation(filter, animation, player));
-        if (match && isScheduled()) animationTick();
         return match;
     }
 
@@ -626,6 +627,7 @@ public abstract class Tracker implements AutoCloseable {
 
     /**
      * Replaces a running animation on filtered bones with a blueprint animation.
+     * The animation update is applied on the next scheduled tracker tick.
      *
      * @param target the name of the animation to replace
      * @param animation the new blueprint animation
@@ -641,7 +643,6 @@ public abstract class Tracker implements AutoCloseable {
             match = true;
         }
         match |= pipeline.matchAnimation((b, a) -> b.replaceAnimation(a, target, animation, modifier));
-        if (match && isScheduled()) animationTick();
         return match;
     }
 
