@@ -112,6 +112,17 @@ public final class EntityBodyRotator {
         return rotationLock.compareAndSet(!lock, lock);
     }
 
+    /**
+     * Synchronizes model body yaw with the entity, including while rotation is locked.
+     * Example: {@code tracker.bodyRotator().syncYaw();}
+     * @since 3.4.2
+     */
+    public synchronized void syncYaw() {
+        rotation = new ModelRotation(entity.pitch(), entity.yaw());
+        provider.storedValue(entity.yaw());
+        tick = 0;
+    }
+
     @NotNull ModelRotation bodyRotation() {
         return rotationLock.get() ? rotation : (rotation = bodySupplier.get());
     }

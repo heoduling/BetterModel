@@ -85,6 +85,7 @@ public abstract class Tracker implements AutoCloseable {
     private final AtomicBoolean isClosed = new AtomicBoolean();
     private final AtomicBoolean readyForForceUpdate = new AtomicBoolean();
     private final AtomicBoolean forRemoval = new AtomicBoolean();
+    private volatile boolean visualCulling;
     private final AtomicBoolean firstStart = new AtomicBoolean();
     protected final TrackerModifier modifier;
     private final BundlerSet bundlerSet;
@@ -131,7 +132,8 @@ public abstract class Tracker implements AutoCloseable {
         this.pipeline = pipeline;
         this.modifier = modifier;
         bundlerSet = new BundlerSet();
-        if (modifier.sightTrace()) pipeline.viewFilter(p -> EntityUtil.canSee(p.eyeLocation(), location()));
+        visualCulling = modifier.sightTrace();
+        pipeline.viewFilter(p -> !visualCulling || EntityUtil.canSee(p.eyeLocation(), location()));
         frame((t, s) -> {
             if (readyForForceUpdate.compareAndSet(true, false)) t.pipeline.forEach(b -> b.dirtyUpdate(s.dataBundler));
         });
@@ -398,6 +400,21 @@ public abstract class Tracker implements AutoCloseable {
      */
     public @NotNull TrackerModifier modifier() {
         return modifier;
+    }
+
+    /**
+     * Enables or disables the view-angle culling used by compatibility mechanics.
+     * This controls animation packet filtering, not client rendering or block occlusion.
+     * The global sight-trace configuration still takes precedence when enabling culling.
+     * <pre>{@code
+     * tracker.visualCulling(false); // Keep animation updates outside the player's view.
+     * }</pre>
+     *
+     * @param enabled true to filter animation updates by the player's view angle
+     * @since 3.4.2
+     */
+    public void visualCulling(boolean enabled) {
+        visualCulling = enabled;
     }
 
     /**

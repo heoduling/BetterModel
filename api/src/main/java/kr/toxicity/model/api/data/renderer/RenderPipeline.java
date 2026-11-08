@@ -251,6 +251,7 @@ public final class RenderPipeline implements BoneEventHandler, Iterable<Rendered
         remove0(bundler);
         if (bundler.isNotEmpty()) allPlayer().map(PlayerChannelHandler::player).forEach(bundler::send);
         playerMap.clear();
+        forEach(RenderedBone::removeAllPlayerStates);
     }
 
     /**
@@ -423,6 +424,7 @@ public final class RenderPipeline implements BoneEventHandler, Iterable<Rendered
     @ApiStatus.Internal
     public boolean remove(@NotNull PlatformPlayer player) {
         if (playerMap.remove(player.uuid()) == null) return false;
+        forEach(bone -> bone.removePlayerState(player.uuid()));
         var bundler = createBundler();
         remove0(bundler);
         bundler.send(player);

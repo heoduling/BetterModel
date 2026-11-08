@@ -20,14 +20,17 @@ class ModelPartTargeter(mlc: MythicLineConfig) : ILocationTargeter {
     private val part = mlc.toPlaceholderString(MM_PART_ID) {
         it?.boneName?.name
     }
+    private val x = mlc.toPlaceholderFloat(arrayOf("x"))
+    private val y = mlc.toPlaceholderFloat(arrayOf("y"))
+    private val z = mlc.toPlaceholderFloat(arrayOf("z"))
 
     override fun getLocations(p0: SkillMetadata): Collection<AbstractLocation> {
         val args = p0.toPlaceholderArgs()
         return p0.toTracker(model(args))?.bone(part(args) ?: return emptyList())?.hitBoxPosition()?.let {
             listOf(p0.caster.entity.location.add(
-                it.x.toDouble(),
-                it.y.toDouble(),
-                it.z.toDouble()
+                it.x.toDouble() + x(args),
+                it.y.toDouble() + y(args),
+                it.z.toDouble() + z(args)
             ))
         } ?: emptyList()
     }

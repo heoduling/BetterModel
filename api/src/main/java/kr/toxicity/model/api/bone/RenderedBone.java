@@ -69,6 +69,7 @@ public final class RenderedBone implements BoneEventHandler {
     @Nullable
     @Getter
     final RenderedBone parent;
+    private volatile RenderedBone transformParent;
     final RenderedBone[] children;
 
     private volatile SequencedSet<RenderedBone> flattenBones;
@@ -127,6 +128,7 @@ public final class RenderedBone implements BoneEventHandler {
     ) {
         this.group = group;
         this.parent = parent;
+        this.transformParent = parent;
         this.renderContext = context;
         itemMapper = group.getItemMapper();
         root = parent != null ? parent.root : this;
@@ -143,6 +145,33 @@ public final class RenderedBone implements BoneEventHandler {
             });
         } else display = null;
         globalState = new BoneStateHandler(null, _ -> {});
+    }
+
+    /**
+     * Changes the animation parent while retaining the model's stable traversal tree.
+     * Both bones must belong to the same model; cycles are rejected.
+     * Example: {@code child.changeParent(tracker.bone("left_arm_death"));}
+     *
+     * @param newParent the new animation parent
+     * @return true if the parent changed, false for a cycle or another model
+     * @since 3.4.2
+     */
+    public boolean changeParent(@NotNull RenderedBone newParent) {
+        synchronized (renderContext) {
+            if (newParent.renderContext != renderContext) return false;
+            for (var ancestor = newParent; ancestor != null; ancestor = ancestor.transformParent) {
+                if (ancestor == this) return false;
+            }
+            transformParent = newParent;
+            defaultFrame.position().set(group.getPosition()).sub(newParent.group.getPosition());
+            globalState.updateAfter.set(true);
+            globalState.updateCurrent.set(true);
+            perPlayerState.values().forEach(state -> {
+                state.updateAfter.set(true);
+                state.updateCurrent.set(true);
+            });
+            return true;
+        }
     }
 
     public void locator(@NotNull BoneIKSolver solver) {
@@ -367,6 +396,36 @@ public final class RenderedBone implements BoneEventHandler {
         if (d != null) d.sendTransformation(bundler);
     }
 
+    /**
+     * Removes all animation state associated with a player.
+     *
+     * <p>This is used when a player stops viewing a pipeline so targeted loop animations
+     * cannot retain per-player state after the player leaves.</p>
+     *
+     * <pre>{@code
+     * bone.removePlayerState(player.uuid());
+     * }</pre>
+     *
+     * @param uuid the player UUID
+     * @since 3.4.2
+     */
+    public void removePlayerState(@NotNull UUID uuid) {
+        if (perPlayerState.remove(uuid) != null) eventDispatcher.onStateRemoved(this, uuid);
+    }
+
+    /**
+     * Removes every player-specific animation state from this bone.
+     *
+     * <pre>{@code
+     * pipeline.forEach(RenderedBone::removeAllPlayerStates);
+     * }</pre>
+     *
+     * @since 3.4.2
+     */
+    public void removeAllPlayerStates() {
+        for (var uuid : perPlayerState.keySet().toArray(UUID[]::new)) removePlayerState(uuid);
+    }
+
     public int interpolationDuration() {
         return globalState.interpolationDuration();
     }
@@ -574,7 +633,7 @@ public final class RenderedBone implements BoneEventHandler {
             this.consumer = consumer;
             state = new AnimationStateHandler<>(
                 AnimationProgress.EMPTY,
-                (_, a) -> skipInterpolation = (a != null && a.skipInterpolation()) || (parent != null && parent.state(uuid).skipInterpolation)
+                (_, a) -> skipInterpolation = (a != null && a.skipInterpolation()) || (transformParent != null && transformParent.state(uuid).skipInterpolation)
             );
         }
 
@@ -583,6 +642,7 @@ public final class RenderedBone implements BoneEventHandler {
             var keyframe = state.afterKeyframe(AnimationProgress.EMPTY);
             var preventModifierUpdate = interpolationDuration() < 1;
             var def = keyframe.animate(defaultFrame, after);
+            var parent = transformParent;
             if (parent != null) {
                 var p = parent.state(uuid).after();
                 MathUtil.fma(
@@ -591,6 +651,9 @@ public final class RenderedBone implements BoneEventHandler {
                         p.position()
                     ).sub(parent.lastModifiedPosition)
                     .add(modifiedPosition(preventModifierUpdate));
+                if (parent.root != root) {
+                    def.position().add(parent.root.group.getPosition()).sub(root.group.getPosition());
+                }
                 def.scale().mul(p.scale());
                 def.rotation().set(parent.lastModifiedGlobalRot.invert(globalRotCache)
                     .mul(modifiedGlobalRot(preventModifierUpdate))
@@ -608,8 +671,7 @@ public final class RenderedBone implements BoneEventHandler {
 
         private boolean tick() {
             var result = state.tick(() -> {
-                if (uuid != null) {
-                    perPlayerState.remove(uuid);
+                if (uuid != null && perPlayerState.remove(uuid, this)) {
                     consumer.accept(uuid);
                 }
             }) || firstTick;
