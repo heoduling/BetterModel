@@ -18,6 +18,7 @@ import kr.toxicity.model.api.data.ModelAsset
 import kr.toxicity.model.api.data.blueprint.BlueprintElement
 import kr.toxicity.model.api.data.blueprint.BlueprintJson
 import kr.toxicity.model.api.data.blueprint.ModelBlueprint
+import kr.toxicity.model.api.data.raw.ModelUV
 import kr.toxicity.model.api.data.renderer.ModelRenderer
 import kr.toxicity.model.api.data.renderer.RendererGroup
 import kr.toxicity.model.api.event.ModelAssetsEvent
@@ -31,6 +32,7 @@ import kr.toxicity.model.api.util.PackUtil
 import kr.toxicity.model.util.*
 import net.kyori.adventure.text.format.NamedTextColor.*
 import java.io.File
+import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.extension
@@ -42,6 +44,47 @@ object ModelManagerImpl : ModelManager, GlobalManager {
     private val playerModelMap = addressingMapOf<String, ModelRenderer>()
     private val playerModelView = playerModelMap.toImmutableView()
     private val modelExtensions = setOf("bbmodel", "ajmodel")
+
+    internal fun stablePlayerSkinId(
+        modelKey: String,
+        parent: BlueprintElement.Group,
+        index: Int,
+        cube: BlueprintElement.Cube
+    ): UUID {
+        fun appendFloat(builder: StringBuilder, value: Float) = builder.append(java.lang.Float.floatToIntBits(value)).append(';')
+        fun appendVector(builder: StringBuilder, value: Float3) {
+            appendFloat(builder, value.x())
+            appendFloat(builder, value.y())
+            appendFloat(builder, value.z())
+        }
+        fun appendUv(builder: StringBuilder, value: ModelUV) {
+            appendVector(builder, Float3(value.uv().dx(), value.uv().dz(), value.uv().tx()))
+            appendFloat(builder, value.uv().tz())
+            builder.append(value.rotation()).append(';')
+            builder.append(value.texture()?.toString() ?: "<null>").append(';')
+        }
+
+        val seed = StringBuilder("player-skin\u0000")
+            .append(modelKey).append('\u0000')
+            .append(parent.uuid()).append('\u0000')
+            .append(parent.name().rawName()).append('\u0000')
+            .append(index).append('\u0000')
+            .append(cube.name()).append('\u0000')
+        appendVector(seed, cube.from())
+        appendVector(seed, cube.to())
+        appendFloat(seed, cube.inflate())
+        appendVector(seed, cube.rotation())
+        appendVector(seed, cube.origin())
+        seed.append(cube.visibility()).append(';')
+        val faces = cube.faces()
+        appendUv(seed, faces.north())
+        appendUv(seed, faces.east())
+        appendUv(seed, faces.south())
+        appendUv(seed, faces.west())
+        appendUv(seed, faces.up())
+        appendUv(seed, faces.down())
+        return UUID.nameUUIDFromBytes(seed.toString().toByteArray(StandardCharsets.UTF_8))
+    }
 
     private fun importModels(
         type: ModelRenderer.Type,
@@ -255,6 +298,8 @@ object ModelManagerImpl : ModelManager, GlobalManager {
         )
 
         private fun ModelBlueprint.toRenderer(type: ModelRenderer.Type, builder: (BlueprintElement.Group) -> String?): ModelRenderer {
+            val modelKey = name
+
             fun <T> Collection<BlueprintElement>.toBoneMap(mapper: (BlueprintElement.Bone) -> T) = filterIsInstance<BlueprintElement.Bone>().let { bone ->
                 bone.associateTo(sequencedAddressingMapOf(bone.size)) { it.name() to mapper(it) }
             }.toImmutableView()
@@ -329,17 +374,18 @@ object ModelManagerImpl : ModelManager, GlobalManager {
                     val directCubes = children.filterIsInstance<BlueprintElement.Cube>()
                     val staticCubes = directCubes.filter { it.rotation() == Float3.ZERO }
                     val rotatedCubes = directCubes - staticCubes.toSet()
-                    val customChildren = rotatedCubes.mapNotNull { cube ->
+                    val customChildren = rotatedCubes.mapIndexedNotNull { index, cube ->
+                        val stableId = stablePlayerSkinId(modelKey, this, index, cube)
                         val synthetic = BlueprintElement.Group(
-                            UUID.randomUUID(),
-                            BoneName.of("pskin_cube_${cube.name().lowercase()}_${UUID.randomUUID()}"),
+                            stableId,
+                            BoneName.of("pskin_cube_${cube.name().lowercase()}_$stableId"),
                             cube.origin(),
                             cube.rotation().invertXZ(),
                             emptyList(),
                             cube.visibility()
                         )
-                        val mapper = createSkinModel("${name().name()}_${cube.name()}_${UUID.randomUUID()}", listOf(cube), cube.origin(), 1F, true)
-                            ?: return@mapNotNull null
+                        val mapper = createSkinModel("${name().name()}_${cube.name()}_$stableId", listOf(cube), cube.origin(), 1F, true)
+                            ?: return@mapIndexedNotNull null
                         synthetic.name() to RendererGroup(1F, null, synthetic, emptySequencedMap(), null, mapper)
                     }
                     val normalChildren = children.toBoneMap { it.parse() }
